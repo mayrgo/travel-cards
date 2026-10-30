@@ -199,16 +199,16 @@ $('#place-form').addEventListener('submit', async (event) => {
   let location;
   try {
     const latText = String(formData.get('lat')).trim(), lonText = String(formData.get('lon')).trim();
-    if ((latText === '') !== (lonText === '')) throw new Error('Enter both latitude and longitude, or leave both empty for place search.');
-    if (latText !== '' && lonText !== '') location = { lat: Number(latText), lon: Number(lonText), source: { provider: 'manual-coordinate' } };
+    if (selectedLocation) location = selectedLocation;
     else {
-      if (!selectedLocation) {
+      if ((latText === '') !== (lonText === '')) throw new Error('Enter both latitude and longitude, or leave both empty for place search.');
+      if (latText !== '' && lonText !== '') location = { lat: Number(latText), lon: Number(lonText), source: { provider: 'manual-coordinate' } };
+      else {
         saveButton.disabled = false;
         if (!geocodeResults.length) await runPlaceSearch();
         else statusElement.textContent = 'Choose one of the search results before saving.';
         return;
       }
-      location = selectedLocation;
     }
   } catch (error) {
     statusElement.textContent = error.message;
