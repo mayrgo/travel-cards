@@ -1,4 +1,5 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import { loadData, saveData, validateImport } from './data-store.js';
 
 const initialPlaces = [
   { name: 'Seoul, South Korea', note: 'home base', kind: 'visited', icon: '首' },
@@ -9,8 +10,8 @@ const initialPlaces = [
   { name: 'Marrakech, Morocco', note: 'the medina & mint tea', kind: 'planned', icon: 'M' },
   { name: 'Patagonia, Argentina', note: 'somewhere wild', kind: 'planned', icon: 'P' },
 ];
-let places;
-try { places = JSON.parse(localStorage.getItem('travel-cards-places')) || initialPlaces; } catch { places = initialPlaces; }
+let data = loadData(initialPlaces);
+let places = data.places;
 let activeFilter = 'visited';
 const $ = (q) => document.querySelector(q);
 const list = $('#place-list');
@@ -26,7 +27,8 @@ function renderPlaces() {
   const countries = new Set(places.filter((p) => p.kind === 'visited').map((p) => p.name.split(',').at(-1).trim())).size;
   $('#country-count').textContent = String(countries).padStart(2, '0');
   $('#trip-list').innerHTML = places.filter((p) => p.kind === 'planned').slice(0, 4).map((p) => `<article class="trip-row"><div class="trip-thumb">${escapeHTML(p.icon || p.name[0])}</div><div class="trip-meta"><b>${escapeHTML(p.name.split(',')[0])}</b><small>${escapeHTML(p.note || 'A place for later')}</small></div><i class="trip-dot"></i></article>`).join('');
-  localStorage.setItem('travel-cards-places', JSON.stringify(places));
+  data.places = places;
+  saveData(data);
 }
 function escapeHTML(value) { return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => {
@@ -58,6 +60,20 @@ $('#photo-input').addEventListener('change', (event) => {
     const grid = $('#photo-grid'); grid.insertBefore(img, grid.firstChild);
   };
   reader.readAsDataURL(file);
+});
+$('#export-data').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify({ ...data, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'travel-cards-backup.json'; link.click(); URL.revokeObjectURL(link.href);
+});
+$('#import-data').addEventListener('click', () => $('#data-input').click());
+$('#data-input').addEventListener('change', async (event) => {
+  const file = event.target.files?.[0]; if (!file) return;
+  try {
+    data = validateImport(JSON.parse(await file.text())); places = data.places;
+    activeFilter = 'visited'; document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.filter === activeFilter));
+    renderPlaces(); alert('Travel Cards data imported.');
+  } catch (error) { alert(`Could not import this file: ${error.message}`); }
+  event.target.value = '';
 });
 
 // Live sun position: NOAA's compact solar declination/equation-of-time approximation.

@@ -15,7 +15,7 @@
       <header class="topbar">
         <a class="wordmark" href="#" aria-label="Travel Cards home"><span class="mark">✳</span> travel cards</a>
         <div class="top-note"><span class="live-dot"></span> YOUR PERSONAL ATLAS <span class="top-divider">/</span> EST. 2025</div>
-        <button class="avatar" aria-label="Profile">M</button>
+        <div class="header-actions"><button class="backup-button" id="export-data">EXPORT DATA ↗</button><button class="backup-button" id="import-data">IMPORT</button><button class="avatar" aria-label="Profile">M</button></div>
       </header>
 
       <section class="workspace">
@@ -80,6 +80,7 @@
       </form>
     </dialog>
     <input id="photo-input" type="file" accept="image/*" hidden />
+    <input id="data-input" type="file" accept="application/json,.json" hidden />
     <script type="module" src="./app.js"></script>
   </body>
 </html>

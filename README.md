@@ -1,6 +1,6 @@
 # Travel Cards
 
-A personal travel atlas: a live day/night globe, a place journal, future trip pins, and postcards. The current prototype runs as a static site and keeps place data in browser local storage.
+A personal travel atlas: a live day/night globe, a place journal, future trip pins, and postcards. The static site is published with GitHub Pages. Place data is local to each browser; use **Export data** / **Import** in the header to move a versioned JSON backup between devices.
 
 ## Run locally
 
@@ -11,6 +11,7 @@ Open `index.html` in a modern browser, or serve the folder over HTTP (for exampl
 - Drag the globe to rotate it; use the plus/minus controls or scroll to zoom.
 - The terminator uses the current UTC time and an approximate solar ephemeris. City lights show on the night side.
 - Add places to either the visited or planned list. These records are saved in this browser only.
+- Export and import a versioned JSON backup from the header. The format includes a schema version for future server migration.
 - The photo picker previews images in the current session. A durable photo library and sync are not connected yet.
 - Example destinations and counts are demo content. Replace them with your own places.
 
@@ -20,7 +21,7 @@ Open `index.html` in a modern browser, or serve the folder over HTTP (for exampl
 2. **Day/night and city glow:** Compute the solar direction locally from UTC (as this prototype does), and use a public Earth-at-night raster such as NASA/NOAA imagery for the light texture. Verify imagery license, attribution, resolution, and refresh cadence before production.
 3. **Places and search:** Start with curated destination data and geocoding through Nominatim for a personal prototype; follow the public service usage policy and avoid bulk or high-volume use. For production traffic, host data or select a geocoding provider with an appropriate service plan.
 4. **Photos:** For an individual, use local uploads first, with IndexedDB for durable browser storage. For multi-device sync, use a private object bucket (Supabase Storage or Cloudflare R2) plus a small database for photo metadata and place links. An Apple Photos import or Google Photos integration would depend on their current API and permission constraints; a simple upload/export workflow is the least brittle start.
-5. **Sync and backup:** Supabase (Postgres, Auth, Storage) is a practical single-vendor option for private cross-device sync. Keep an export-to-JSON/GeoJSON feature so the atlas remains portable.
+5. **Sync and backup:** GitHub Pages serves only the static app; it does not store personal edits. The data access boundary in `data-store.js` is the migration seam: replace its browser adapter with a small REST API when the personal server is available. A self-hosted API plus PostgreSQL and a private photo directory (or MinIO) is a portable setup; Supabase is an alternative if managed hosting is preferred. Keep the JSON export so the atlas remains portable.
 
 ## A flexible way to define “visited”
 
@@ -31,4 +32,4 @@ Store a visit as an entity with a `scope`: `country`, `city`, `area`, or `point`
 - Replace demo locations with editable searchable records and a map click-to-pin flow.
 - Add GeoJSON boundaries and a visit-scope editor, then color visited geometry on the globe.
 - Persist photos in IndexedDB and add place/date associations.
-- Add export/import, then authentication and private sync if cross-device access is wanted.
+- When the personal server is available, add a REST storage adapter and import the JSON backup; then add authentication and private photo sync.
