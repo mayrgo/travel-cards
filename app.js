@@ -240,7 +240,7 @@ $('#place-form').addEventListener('submit', async (event) => {
       else data.plans.push({ id: crypto.randomUUID(), targetId: target.id, plannedFor: String(formData.get('planDate')) || null, note, createdAt: new Date().toISOString() });
     }
     editingPlace = null; activeFilter = statusValue; document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.filter === activeFilter));
-    renderPlaces(); saveButton.disabled = false; dialog.close(); return;
+    renderPlaces(); saveButton.disabled = false; dialog.close(); focusPlace({ lat: location.lat, lon: location.lon }); return;
   }
   let region = sourceId ? data.regions.find((candidate) => candidate.source?.externalId === sourceId && candidate.scope === scope) : null;
   const geometry = scope === 'point' ? null : location.geojson || region?.geometry || null;
@@ -424,7 +424,7 @@ function areaMaterial(hexColor) {
   return new THREE.ShaderMaterial({
     uniforms: { areaColor: { value: new THREE.Color(hexColor) }, sunDir: uniforms.sunDir, opacity: { value: 0.9 } },
     vertexShader: 'varying vec3 vNormal; void main(){vNormal=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-    fragmentShader: 'uniform vec3 areaColor; uniform vec3 sunDir; uniform float opacity; varying vec3 vNormal; void main(){float day=smoothstep(-0.055,0.045,dot(normalize(vNormal),normalize(sunDir)));float light=mix(0.22,0.92,day);gl_FragColor=vec4(areaColor*light,opacity);}',
+    fragmentShader: 'uniform vec3 areaColor; uniform vec3 sunDir; uniform float opacity; varying vec3 vNormal; void main(){float day=smoothstep(-0.055,0.045,dot(normalize(vNormal),normalize(sunDir)));float light=mix(0.48,1.0,day);gl_FragColor=vec4(areaColor*light,opacity);}',
     transparent: true, side: THREE.DoubleSide, depthWrite: false,
   });
 }
