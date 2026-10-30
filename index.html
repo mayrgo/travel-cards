@@ -45,6 +45,7 @@
           <div id="globe"></div>
           <div class="globe-hint"><span>↖</span> DRAG TO EXPLORE</div>
           <div class="zoom-controls"><button id="zoom-in" aria-label="Zoom in">＋</button><button id="zoom-out" aria-label="Zoom out">−</button></div>
+          <button class="labels-toggle" id="labels-toggle" type="button" aria-pressed="false">LABELS OFF</button>
           <div class="map-credit">EARTH AT NIGHT · NASA / NOAA <span>· © OPENSTREETMAP CONTRIBUTORS</span></div>
           <div class="sun-key"><span class="sun-icon">☼</span> THE SUN, RIGHT NOW <span class="key-line"></span><span id="sun-position">ILLUMINATING THE PLANET</span></div>
           <button class="location-pin" id="map-add" title="Add a place to your map">＋ <span>ADD A PLACE</span></button>
@@ -69,8 +70,8 @@
     </main>
     <dialog id="place-dialog">
       <form method="dialog" id="place-form">
-        <div class="dialog-top"><span class="eyebrow">PIN A MEMORY</span><button class="close-dialog" value="cancel" aria-label="Close">×</button></div>
-        <h2>Add a <em>place.</em></h2>
+        <div class="dialog-top"><span class="eyebrow" id="dialog-eyebrow">PIN A MEMORY</span><button class="close-dialog" value="cancel" aria-label="Close">×</button></div>
+        <h2 id="dialog-title">Add a <em>place.</em></h2>
         <label>PLACE NAME<input name="name" required placeholder="e.g. Lisbon, Portugal" /></label>
         <button class="find-place-button" id="find-place" type="button">FIND ON MAP ↗</button>
         <p class="geocode-note">Search and choose a place. For filled areas, choose a result with a boundary.</p>
@@ -86,6 +87,7 @@
         <div class="dialog-actions"><button class="cancel-button" value="cancel">CANCEL</button><button class="save-button" value="default">SAVE TO ATLAS ↗</button></div>
       </form>
     </dialog>
+    <dialog id="delete-dialog"><form method="dialog"><div class="dialog-top"><span class="eyebrow">REMOVE FROM ATLAS</span><button class="close-dialog" value="cancel" aria-label="Close">×</button></div><h2>Delete this <em>place?</em></h2><p class="intro" id="delete-place-name"></p><div class="dialog-actions"><button class="cancel-button" value="cancel">KEEP IT</button><button class="save-button" id="confirm-delete" value="default">DELETE PLACE</button></div></form></dialog>
     <input id="photo-input" type="file" accept="image/*" hidden />
     <input id="data-input" type="file" accept="application/json,.json" hidden />
     <script type="module" src="./app.js"></script>

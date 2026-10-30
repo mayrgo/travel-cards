@@ -26,11 +26,13 @@ const list = $('#place-list');
 let markerRefresh = () => {};
 let selectedLocation = null;
 let geocodeResults = [];
+let editingPlace = null;
+let pendingDelete = null;
 
 function renderPlaces() {
   places = derivePlaces();
   const visible = places.filter((p) => p.kind === activeFilter);
-  list.innerHTML = visible.length ? visible.map((p) => `<article class="place-row"><div class="place-thumb">${escapeHTML(p.icon || p.name[0])}</div><div class="place-meta"><b>${escapeHTML(p.name)}</b><small>${escapeHTML(p.note || (p.kind === 'visited' ? 'a story in the making' : 'one for the list'))}</small></div><span class="place-type ${p.kind === 'planned' ? 'planned-type' : ''}">${escapeHTML(p.scope.toUpperCase())}</span></article>`).join('') : '<p class="intro" style="padding:15px 0">No places here yet. Add your first pin.</p>';
+  list.innerHTML = visible.length ? visible.map((p) => `<article class="place-row"><div class="place-thumb">${escapeHTML(p.icon || p.name[0])}</div><div class="place-meta"><b>${escapeHTML(p.name)}</b><small>${escapeHTML(p.note || (p.kind === 'visited' ? 'a story in the making' : 'one for the list'))}</small><div class="place-actions"><button type="button" data-edit="${escapeHTML(p.id)}">EDIT</button><button type="button" class="delete-place" data-delete="${escapeHTML(p.id)}">DELETE</button></div></div><span class="place-type ${p.kind === 'planned' ? 'planned-type' : ''}">${escapeHTML(p.scope.toUpperCase())}</span></article>`).join('') : '<p class="intro" style="padding:15px 0">No places here yet. Add your first pin.</p>';
   const visited = places.filter((p) => p.kind === 'visited').length;
   const planned = places.filter((p) => p.kind === 'planned').length;
   $('#been-total').textContent = String(visited).padStart(2, '0');
@@ -54,6 +56,42 @@ function renderPlaces() {
   saveData(data).catch((error) => { $('#place-status').textContent = `Could not save locally: ${error.message}`; });
   markerRefresh();
 }
+function removeTarget(targetId) {
+  data.targets = data.targets.filter((item) => item.id !== targetId);
+  data.visits = data.visits.filter((item) => item.targetId !== targetId);
+  data.plans = data.plans.filter((item) => item.targetId !== targetId);
+  const regionIds = new Set(data.targets.map((item) => item.regionId));
+  data.regions = data.regions.filter((region) => regionIds.has(region.id));
+  const usedGroups = new Set(data.targets.map((item) => item.groupId).filter(Boolean));
+  data.groups = data.groups.filter((group) => usedGroups.has(group.id));
+}
+function mergeNearbyDuplicates() {
+  const normalize = (name) => String(name || '').normalize('NFKD').toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').trim();
+  for (let i = 0; i < data.regions.length; i++) {
+    const first = data.regions[i];
+    for (let j = data.regions.length - 1; j > i; j--) {
+      const duplicate = data.regions[j];
+      if (first.scope !== duplicate.scope || normalize(first.name) !== normalize(duplicate.name) || (first.countryCode && duplicate.countryCode && first.countryCode !== duplicate.countryCode)) continue;
+      const a = first.center, b = duplicate.center;
+      if (a && b && Math.hypot(a.lat - b.lat, (a.lon - b.lon) * Math.cos(a.lat * Math.PI / 180)) > 0.22) continue;
+      const firstTarget = data.targets.find((target) => target.regionId === first.id);
+      const duplicateTarget = data.targets.find((target) => target.regionId === duplicate.id);
+      if (!firstTarget || !duplicateTarget) continue;
+      for (const visit of data.visits) if (visit.targetId === duplicateTarget.id) visit.targetId = firstTarget.id;
+      for (const plan of data.plans) if (plan.targetId === duplicateTarget.id) plan.targetId = firstTarget.id;
+      first.geometry ||= duplicate.geometry; first.center ||= duplicate.center; first.countryCode ||= duplicate.countryCode; first.source ||= duplicate.source;
+      data.targets = data.targets.filter((target) => target.id !== duplicateTarget.id);
+      data.regions = data.regions.filter((region) => region.id !== duplicate.id);
+    }
+  }
+}
+list.addEventListener('click', (event) => {
+  const edit = event.target.closest('[data-edit]');
+  if (edit) { const place = places.find((item) => item.id === edit.dataset.edit); if (place) openEdit(place); return; }
+  const remove = event.target.closest('[data-delete]');
+  if (remove) { pendingDelete = places.find((item) => item.id === remove.dataset.delete); if (pendingDelete) { $('#delete-place-name').textContent = pendingDelete.name; $('#delete-dialog').showModal(); } }
+});
+$('#confirm-delete').addEventListener('click', (event) => { event.preventDefault(); if (!pendingDelete) return; removeTarget(pendingDelete.target.id); pendingDelete = null; $('#delete-dialog').close(); renderPlaces(); });
 function escapeHTML(value) { return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => {
   activeFilter = tab.dataset.filter;
@@ -63,10 +101,18 @@ document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click',
 const dialog = $('#place-dialog');
 function syncScopeField() { $('#city-group-row').hidden = $('#place-form').elements.scope.value !== 'city'; }
 function syncStatusFields() { const planned = $('#place-form').elements.kind.value === 'planned'; $('#visit-date-row').hidden = planned; $('#plan-date-row').hidden = !planned; }
-function openForm(kind = activeFilter) { $('#place-form').reset(); $('#place-status').textContent = ''; $('#geocode-results').replaceChildren(); selectedLocation = null; geocodeResults = []; $('#place-form').elements.kind.value = kind; syncScopeField(); syncStatusFields(); dialog.showModal(); }
+function openForm(kind = activeFilter) { editingPlace = null; $('#dialog-eyebrow').textContent = 'PIN A MEMORY'; $('#dialog-title').innerHTML = 'Add a <em>place.</em>'; $('#place-form').reset(); $('#place-status').textContent = ''; $('#geocode-results').replaceChildren(); selectedLocation = null; geocodeResults = []; $('#place-form').elements.kind.value = kind; syncScopeField(); syncStatusFields(); dialog.showModal(); }
+function openEdit(place) {
+  editingPlace = place; $('#dialog-eyebrow').textContent = 'EDIT ATLAS ENTRY'; $('#dialog-title').innerHTML = 'Edit this <em>place.</em>';
+  $('#place-form').reset(); $('#place-form').elements.name.value = place.name; $('#place-form').elements.scope.value = place.scope; $('#place-form').elements.kind.value = place.kind;
+  $('#place-form').elements.note.value = place.note || ''; $('#place-form').elements.visitDate.value = place.kind === 'visited' ? place.date || '' : '';
+  $('#place-form').elements.planDate.value = place.kind === 'planned' ? place.date || '' : ''; $('#place-form').elements.lat.value = place.lat ?? ''; $('#place-form').elements.lon.value = place.lon ?? '';
+  $('#place-status').textContent = 'Change the name, note, dates, or search and select another map result.'; $('#geocode-results').replaceChildren(); selectedLocation = null; geocodeResults = [];
+  syncScopeField(); syncStatusFields(); dialog.showModal();
+}
 ['#add-place', '#add-place-bottom', '#map-add', '#add-trip', '#plan-card'].forEach((id) => $(id).addEventListener('click', () => openForm(id === '#add-trip' || id === '#plan-card' ? 'planned' : activeFilter)));
 let lastGeocodeAt = 0;
-const geocodeCacheKey = 'travel-cards-geocode-cache-v2';
+const geocodeCacheKey = 'travel-cards-geocode-cache-v3';
 async function searchPlaces(query) {
   let cache = {};
   try { cache = JSON.parse(localStorage.getItem(geocodeCacheKey)) || {}; } catch { /* ignore old or malformed cache */ }
@@ -76,7 +122,7 @@ async function searchPlaces(query) {
   if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
   lastGeocodeAt = Date.now();
   const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.search = new URLSearchParams({ format: 'jsonv2', limit: '5', addressdetails: '1', polygon_geojson: '1', polygon_threshold: '0.01', q: query.trim(), 'accept-language': 'en' });
+  url.search = new URLSearchParams({ format: 'jsonv2', limit: '10', addressdetails: '1', polygon_geojson: '1', polygon_threshold: '0.001', q: query.trim(), 'accept-language': 'en' });
   const response = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error('Place search is temporarily unavailable. Try again or enter coordinates.');
   const results = await response.json();
@@ -168,12 +214,47 @@ $('#place-form').addEventListener('submit', async (event) => {
     return;
   }
   const sourceId = location.osmType && location.osmId ? `${location.osmType}/${location.osmId}` : null;
+  if (editingPlace) {
+    if (selectedLocation && scope !== 'point' && !location.geojson) { statusElement.textContent = 'This search result has no administrative boundary. Select a result marked “boundary available” to fill a city or area.'; saveButton.disabled = false; return; }
+    const target = editingPlace.target;
+    const region = editingPlace.region;
+    const previousKind = editingPlace.kind;
+    region.name = name; region.scope = scope;
+    region.center = { lat: location.lat, lon: location.lon };
+    if (selectedLocation) { region.geometry = scope === 'point' ? null : location.geojson || null; region.countryCode = location.countryCode || null; region.canonicalName = location.label; region.source = { provider: 'OpenStreetMap', externalId: sourceId, retrievedAt: new Date().toISOString(), license: 'ODbL-1.0', attribution: '© OpenStreetMap contributors' }; }
+    else if (scope === 'point') region.geometry = null;
+    target.status = statusValue; target.completionRule = scope === 'country' ? 'one-entry' : 'visit-unit'; target.note = note;
+    if (previousKind === 'visited' && statusValue === 'visited') {
+      const visit = data.visits.find((item) => item.targetId === target.id);
+      if (visit) { visit.note = note; visit.visitedAt = String(formData.get('visitDate')) || null; }
+      else data.visits.push({ id: crypto.randomUUID(), targetId: target.id, visitedAt: String(formData.get('visitDate')) || null, note, photoRefs: [] });
+    } else if (previousKind === 'planned' && statusValue === 'planned') {
+      const plan = data.plans.find((item) => item.id === editingPlace.id);
+      if (plan) { plan.note = note; plan.plannedFor = String(formData.get('planDate')) || null; }
+    } else {
+      data.visits = data.visits.filter((item) => item.targetId !== target.id);
+      data.plans = data.plans.filter((item) => item.targetId !== target.id);
+      if (statusValue === 'visited') data.visits.push({ id: crypto.randomUUID(), targetId: target.id, visitedAt: String(formData.get('visitDate')) || null, note, photoRefs: [] });
+      else data.plans.push({ id: crypto.randomUUID(), targetId: target.id, plannedFor: String(formData.get('planDate')) || null, note, createdAt: new Date().toISOString() });
+    }
+    editingPlace = null; activeFilter = statusValue; document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.filter === activeFilter));
+    renderPlaces(); saveButton.disabled = false; dialog.close(); return;
+  }
   let region = sourceId ? data.regions.find((candidate) => candidate.source?.externalId === sourceId && candidate.scope === scope) : null;
   const geometry = scope === 'point' ? null : location.geojson || region?.geometry || null;
   if (scope !== 'point' && !geometry) {
     statusElement.textContent = 'No boundary came with this result, so it cannot be filled as a region. Choose a boundary result or save it as an exact place.';
     saveButton.disabled = false;
     return;
+  }
+  if (!region) {
+    const normalizedName = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').trim();
+    region = data.regions.find((candidate) => {
+      if (candidate.scope !== scope || candidate.name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').trim() !== normalizedName) return false;
+      if (location.countryCode && candidate.countryCode && location.countryCode !== candidate.countryCode) return false;
+      if (!candidate.center) return true;
+      return Math.hypot(candidate.center.lat - location.lat, (candidate.center.lon - location.lon) * Math.cos(location.lat * Math.PI / 180)) <= 0.22;
+    }) || null;
   }
   if (!region) {
     region = {
@@ -278,15 +359,16 @@ const uniforms = { dayMap: { value: dayMap }, lightsMap: { value: lightsMap }, s
 const earthMaterial = new THREE.ShaderMaterial({ uniforms, vertexShader: `varying vec2 vUv; varying vec3 vNormal; varying vec3 vPosition; void main(){vUv=uv; vNormal=normalize(normalMatrix*normal); vec4 mv=modelViewMatrix*vec4(position,1.0); vPosition=mv.xyz; gl_Position=projectionMatrix*mv;}`, fragmentShader: `uniform sampler2D dayMap; uniform sampler2D lightsMap; uniform vec3 sunDir; varying vec2 vUv; varying vec3 vNormal; varying vec3 vPosition; void main(){ vec2 uv=vUv; vec3 tex=texture2D(dayMap,uv).rgb; float lum=dot(tex,vec3(0.299,0.587,0.114)); vec3 mono=vec3(pow(lum,0.8)*0.82+0.08); float sun=dot(normalize(vNormal),normalize(sunDir)); float day=smoothstep(-0.055,0.045,sun); vec3 lights=texture2D(lightsMap,uv).rgb; vec3 city=vec3(0.92,0.72,0.39)*pow(max(lights.r,lights.g),1.4)*1.65; vec3 surface=mix(vec3(0.012,0.018,0.019)+city,mono,day); float rim=pow(1.0-max(dot(normalize(vNormal),normalize(-vPosition)),0.0),3.0); surface+=vec3(0.13,0.18,0.16)*rim; gl_FragColor=vec4(surface,1.0);}` });
 const earth = new THREE.Mesh(sphereGeometry, earthMaterial); globe.add(earth);
 const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(1.445, 64, 48), new THREE.ShaderMaterial({ transparent: true, side: THREE.BackSide, vertexShader: 'varying vec3 n; void main(){n=normalize(normalMatrix*normal); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}', fragmentShader: 'varying vec3 n; void main(){float a=pow(0.72-max(dot(normalize(n),vec3(0.0,0.0,1.0)),0.0),2.2); gl_FragColor=vec4(0.27,0.35,0.32,a*0.22);}' })); globe.add(atmosphere);
-const sunMarker = new THREE.Group();
-sunMarker.add(new THREE.Mesh(new THREE.SphereGeometry(0.019, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffdc91 })));
-sunMarker.add(new THREE.Mesh(new THREE.SphereGeometry(0.038, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffdc91, transparent: true, opacity: 0.25, depthWrite: false })));
-globe.add(sunMarker);
 globe.rotation.y = -0.48; globe.rotation.x = -0.12;
 let dragging = false, lastX = 0, lastY = 0, targetX = globe.rotation.x, targetY = globe.rotation.y;
 let fitDistance = 5.8;
 let zoom = fitDistance;
-const pinGeometry = new THREE.SphereGeometry(0.026, 12, 10);
+const labelLayer = document.createElement('div'); labelLayer.className = 'map-label-layer'; host.append(labelLayer);
+let labelsEnabled = localStorage.getItem('travel-cards-labels') === 'on';
+const labelsToggle = $('#labels-toggle');
+function syncLabelsToggle() { labelsToggle.textContent = labelsEnabled ? 'LABELS ON' : 'LABELS OFF'; labelsToggle.setAttribute('aria-pressed', String(labelsEnabled)); labelLayer.classList.toggle('enabled', labelsEnabled); }
+labelsToggle.addEventListener('click', () => { labelsEnabled = !labelsEnabled; localStorage.setItem('travel-cards-labels', labelsEnabled ? 'on' : 'off'); syncLabelsToggle(); });
+syncLabelsToggle();
 function coordinatesToPosition(lat, lon, radius = 1.47) {
   const latitude = THREE.MathUtils.degToRad(lat), longitude = THREE.MathUtils.degToRad(lon);
   return new THREE.Vector3(radius * Math.cos(latitude) * Math.cos(longitude), radius * Math.sin(latitude), -radius * Math.cos(latitude) * Math.sin(longitude));
@@ -340,14 +422,15 @@ function polygonToSphere(geojson, radius = 1.426) {
 }
 function areaMaterial(hexColor) {
   return new THREE.ShaderMaterial({
-    uniforms: { areaColor: { value: new THREE.Color(hexColor) }, sunDir: uniforms.sunDir, opacity: { value: 0.74 } },
+    uniforms: { areaColor: { value: new THREE.Color(hexColor) }, sunDir: uniforms.sunDir, opacity: { value: 0.9 } },
     vertexShader: 'varying vec3 vNormal; void main(){vNormal=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
     fragmentShader: 'uniform vec3 areaColor; uniform vec3 sunDir; uniform float opacity; varying vec3 vNormal; void main(){float day=smoothstep(-0.055,0.045,dot(normalize(vNormal),normalize(sunDir)));float light=mix(0.22,0.92,day);gl_FragColor=vec4(areaColor*light,opacity);}',
     transparent: true, side: THREE.DoubleSide, depthWrite: false,
   });
 }
 function refreshMarkers() {
-  for (const child of [...globe.children]) if (child.userData.travelMarker || child.userData.travelBoundary) globe.remove(child);
+  for (const child of [...globe.children]) if (child.userData.travelBoundary) globe.remove(child);
+  labelLayer.replaceChildren();
   const mapPlaces = new Map();
   for (const place of places) {
     const previous = mapPlaces.get(place.regionId);
@@ -361,12 +444,9 @@ function refreshMarkers() {
     for (const geometry of place.scope === 'point' ? [] : polygonToSphere(place.geojson, surfaceRadius)) {
       boundary.add(new THREE.Mesh(geometry, areaMaterial(color)));
     }
-    globe.add(boundary);
-    const marker = new THREE.Group(); marker.userData.travelMarker = true;
-    const dot = new THREE.Mesh(pinGeometry, new THREE.MeshBasicMaterial({ color }));
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.052, 12, 10), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false }));
-    marker.add(halo, dot); marker.position.copy(coordinatesToPosition(place.lat, place.lon)); marker.userData.place = place;
-    globe.add(marker);
+    if (boundary.children.length) globe.add(boundary);
+    const label = document.createElement('span'); label.className = `map-place-label ${place.kind === 'planned' ? 'planned-label' : ''}`; label.textContent = place.name; labelLayer.append(label);
+    label.userData = { lat: place.lat, lon: place.lon };
   }
 }
 markerRefresh = refreshMarkers;
@@ -374,7 +454,6 @@ function focusPlace(place) {
   if (!Number.isFinite(place.lat) || !Number.isFinite(place.lon)) return;
   targetY = -Math.PI / 2 - THREE.MathUtils.degToRad(place.lon);
   targetX = THREE.MathUtils.degToRad(place.lat);
-  zoom = Math.min(zoom, fitDistance * 0.92);
 }
 refreshMarkers();
 renderer.domElement.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; renderer.domElement.setPointerCapture(e.pointerId); });
@@ -386,7 +465,6 @@ $('#zoom-out').addEventListener('click', () => zoom = Math.min(fitDistance * 1.6
 function updateTime() {
   const now = new Date(); $('#utc-time').textContent = `UTC ${new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now)}`;
   const { decl, subLon } = solarPosition(now);
-  sunMarker.position.copy(coordinatesToPosition(THREE.MathUtils.radToDeg(decl), subLon, 1.458));
   const sunLocal = coordinatesToPosition(THREE.MathUtils.radToDeg(decl), subLon, 1).normalize();
   globe.updateMatrixWorld(); camera.updateMatrixWorld();
   const sunWorld = sunLocal.applyQuaternion(globe.getWorldQuaternion(new THREE.Quaternion()));
@@ -395,7 +473,24 @@ function updateTime() {
   const subLat = THREE.MathUtils.radToDeg(decl);
   $('#sun-position').textContent = `${Math.abs(subLat).toFixed(1)}°${subLat >= 0 ? 'N' : 'S'} · ${Math.abs(subLon).toFixed(1)}°${subLon >= 0 ? 'E' : 'W'}`;
 }
-function animate() { requestAnimationFrame(animate); globe.rotation.y += (targetY - globe.rotation.y) * 0.035; globe.rotation.x += (targetX - globe.rotation.x) * 0.035; camera.position.z += (zoom - camera.position.z) * 0.08; renderer.render(scene, camera); }
+const projectedLabelPoint = new THREE.Vector3();
+function animate() {
+  requestAnimationFrame(animate);
+  globe.rotation.y += (targetY - globe.rotation.y) * 0.035; globe.rotation.x += (targetX - globe.rotation.x) * 0.035;
+  camera.position.z += (zoom - camera.position.z) * 0.08;
+  globe.updateMatrixWorld(); camera.updateMatrixWorld();
+  for (const label of labelLayer.children) {
+    const { lat, lon } = label.userData;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) { label.hidden = true; continue; }
+    projectedLabelPoint.copy(coordinatesToPosition(lat, lon, 1.48)); globe.localToWorld(projectedLabelPoint);
+    const front = projectedLabelPoint.clone().applyMatrix4(camera.matrixWorldInverse).z < 0;
+    projectedLabelPoint.project(camera);
+    label.hidden = !front || projectedLabelPoint.z < -1 || projectedLabelPoint.z > 1;
+    label.style.left = `${(projectedLabelPoint.x * 0.5 + 0.5) * host.clientWidth}px`;
+    label.style.top = `${(-projectedLabelPoint.y * 0.5 + 0.5) * host.clientHeight}px`;
+  }
+  renderer.render(scene, camera);
+}
 function resize() {
   const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return;
   renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
@@ -405,4 +500,4 @@ function resize() {
   if (camera.position.z === 5.8 && zoom === 5.8) { zoom = fitDistance; camera.position.z = fitDistance; }
   else zoom = THREE.MathUtils.clamp(zoom, fitDistance * 0.58, fitDistance * 1.65);
 }
-resize(); new ResizeObserver(resize).observe(host); updateTime(); setInterval(updateTime, 1000); animate(); reconcileCountryCoverage(); renderPlaces();
+resize(); new ResizeObserver(resize).observe(host); updateTime(); setInterval(updateTime, 1000); animate(); mergeNearbyDuplicates(); reconcileCountryCoverage(); renderPlaces();
