@@ -191,6 +191,8 @@ $('#place-form').addEventListener('submit', async (event) => {
   const formData = new FormData(form);
   const name = String(formData.get('name')).trim();
   const scope = String(formData.get('scope'));
+  const statusValue = String(formData.get('kind'));
+  const note = String(formData.get('note')).trim();
   const statusElement = $('#place-status');
   const saveButton = form.querySelector('.save-button');
   saveButton.disabled = true;
@@ -275,8 +277,6 @@ $('#place-form').addEventListener('submit', async (event) => {
     region.geometry ||= geometry;
   }
   let target = data.targets.find((candidate) => candidate.regionId === region.id);
-  const statusValue = String(formData.get('kind'));
-  const note = String(formData.get('note')).trim();
   const requestedGroupName = scope === 'city' ? String(formData.get('groupName')).trim() : '';
   let groupId = null;
   if (requestedGroupName) {
