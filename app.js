@@ -32,7 +32,7 @@ let pendingDelete = null;
 function renderPlaces() {
   places = derivePlaces();
   const visible = places.filter((p) => p.kind === activeFilter);
-  list.innerHTML = visible.length ? visible.map((p) => `<article class="place-row"><div class="place-thumb">${escapeHTML(p.icon || p.name[0])}</div><div class="place-meta"><b>${escapeHTML(p.name)}</b><small>${escapeHTML(p.note || (p.kind === 'visited' ? 'a story in the making' : 'one for the list'))}</small><div class="place-actions"><button type="button" data-edit="${escapeHTML(p.id)}">EDIT</button><button type="button" class="delete-place" data-delete="${escapeHTML(p.id)}">DELETE</button></div></div><span class="place-type ${p.kind === 'planned' ? 'planned-type' : ''}">${escapeHTML(p.scope.toUpperCase())}</span></article>`).join('') : '<p class="intro" style="padding:15px 0">No places here yet. Add your first pin.</p>';
+  list.innerHTML = visible.length ? visible.map((p) => `<article class="place-row" data-place="${escapeHTML(p.id)}"><div class="place-thumb">${escapeHTML(p.icon || p.name[0])}</div><div class="place-meta"><b>${escapeHTML(p.name)}</b><small>${escapeHTML(p.note || (p.kind === 'visited' ? 'a story in the making' : 'one for the list'))}</small><div class="place-actions"><button type="button" data-edit="${escapeHTML(p.id)}">EDIT</button><button type="button" class="delete-place" data-delete="${escapeHTML(p.id)}">DELETE</button></div></div><span class="place-type ${p.kind === 'planned' ? 'planned-type' : ''}">${escapeHTML(p.scope.toUpperCase())}</span></article>`).join('') : '<p class="intro" style="padding:15px 0">No places here yet. Add your first pin.</p>';
   const visited = places.filter((p) => p.kind === 'visited').length;
   const planned = places.filter((p) => p.kind === 'planned').length;
   $('#been-total').textContent = String(visited).padStart(2, '0');
@@ -86,6 +86,8 @@ function mergeNearbyDuplicates() {
   }
 }
 list.addEventListener('click', (event) => {
+  const row = event.target.closest('[data-place]');
+  if (row && !event.target.closest('button')) { const place = places.find((item) => item.id === row.dataset.place); if (place) focusPlace(place); return; }
   const edit = event.target.closest('[data-edit]');
   if (edit) { const place = places.find((item) => item.id === edit.dataset.edit); if (place) openEdit(place); return; }
   const remove = event.target.closest('[data-delete]');
