@@ -58,12 +58,12 @@ async function searchPlaces(query) {
   if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
   lastGeocodeAt = Date.now();
   const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.search = new URLSearchParams({ format: 'jsonv2', limit: '5', q: query.trim(), 'accept-language': 'en' });
+  url.search = new URLSearchParams({ format: 'jsonv2', limit: '5', polygon_geojson: '1', polygon_threshold: '0.01', q: query.trim(), 'accept-language': 'en' });
   const response = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error('Place search is temporarily unavailable. Try again or enter coordinates.');
   const results = await response.json();
   if (!results.length) throw new Error('Place not found. Try adding the country, or enter coordinates.');
-  const matches = results.map((item) => ({ lat: Number(item.lat), lon: Number(item.lon), label: item.display_name, type: item.type }));
+  const matches = results.map((item) => ({ lat: Number(item.lat), lon: Number(item.lon), label: item.display_name, type: item.type, geojson: item.geojson || null }));
   cache[key] = matches;
   try { localStorage.setItem(geocodeCacheKey, JSON.stringify(cache)); } catch { /* geocoding still succeeds without cache */ }
   return matches;
@@ -77,7 +77,7 @@ async function runPlaceSearch() {
     geocodeResults = await searchPlaces(query);
     if (geocodeResults.length === 1) selectedLocation = geocodeResults[0];
     resultsHost.innerHTML = geocodeResults.map((result, index) => `<button type="button" class="geocode-result ${index === 0 && geocodeResults.length === 1 ? 'selected' : ''}" data-result="${index}"><span>${escapeHTML(result.label)}</span><small>${result.lat.toFixed(4)}, ${result.lon.toFixed(4)}</small></button>`).join('');
-    status.textContent = geocodeResults.length === 1 ? 'Location selected. Save to add its pin.' : 'Choose the right place from these matches.';
+    status.textContent = geocodeResults.length === 1 ? selectionMessage(selectedLocation) : 'Choose the right place from these matches.';
   } catch (error) { status.textContent = error.message; }
   finally { findButton.disabled = false; }
 }
@@ -86,8 +86,11 @@ $('#geocode-results').addEventListener('click', (event) => {
   const button = event.target.closest('[data-result]'); if (!button) return;
   selectedLocation = geocodeResults[Number(button.dataset.result)];
   $('#geocode-results').querySelectorAll('.geocode-result').forEach((item) => item.classList.toggle('selected', item === button));
-  $('#place-status').textContent = 'Location selected. Save to add its pin.';
+  $('#place-status').textContent = selectionMessage(selectedLocation);
 });
+function selectionMessage(location) {
+  return location?.geojson ? 'City boundary found. Save to color the whole area.' : 'Only a point was found; no boundary is available. You can still save the pin.';
+}
 $('#place-form').elements.name.addEventListener('input', () => { selectedLocation = null; geocodeResults = []; $('#geocode-results').replaceChildren(); $('#place-status').textContent = ''; });
 $('#place-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -117,7 +120,7 @@ $('#place-form').addEventListener('submit', async (event) => {
     saveButton.disabled = false;
     return;
   }
-  const place = { id: crypto.randomUUID(), name, note: String(data.get('note')).trim(), kind: data.get('kind'), icon: name.slice(0, 1).toUpperCase(), lat: location.lat, lon: location.lon };
+  const place = { id: crypto.randomUUID(), name, note: String(data.get('note')).trim(), kind: data.get('kind'), icon: name.slice(0, 1).toUpperCase(), lat: location.lat, lon: location.lon, geojson: location.geojson || null };
   places.unshift(place);
   activeFilter = data.get('kind');
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.filter === activeFilter));
@@ -186,11 +189,53 @@ function coordinatesToPosition(lat, lon, radius = 1.47) {
   const latitude = THREE.MathUtils.degToRad(lat), longitude = THREE.MathUtils.degToRad(lon);
   return new THREE.Vector3(-radius * Math.cos(latitude) * Math.cos(longitude), radius * Math.sin(latitude), radius * Math.cos(latitude) * Math.sin(longitude));
 }
+function polygonToSphere(geojson, radius = 1.426) {
+  if (!geojson || !['Polygon', 'MultiPolygon'].includes(geojson.type)) return [];
+  const polygons = geojson.type === 'Polygon' ? [geojson.coordinates] : geojson.coordinates;
+  const meshes = [];
+  const unwrapRing = (ring, reference = null) => {
+    let previous = reference;
+    return ring.map(([longitude, latitude]) => {
+      let lon = longitude;
+      if (previous !== null) lon += Math.round((previous - lon) / 360) * 360;
+      previous = lon;
+      return [lon, latitude];
+    });
+  };
+  for (const polygon of polygons) {
+    if (!polygon?.[0]?.length) continue;
+    const outer = unwrapRing(polygon[0]);
+    const shape = new THREE.Shape();
+    shape.moveTo(outer[0][0], outer[0][1]);
+    for (let i = 1; i < outer.length; i++) shape.lineTo(outer[i][0], outer[i][1]);
+    shape.closePath();
+    for (const holeRing of polygon.slice(1)) {
+      const holePoints = unwrapRing(holeRing, outer[0][0]);
+      const hole = new THREE.Path(); hole.moveTo(holePoints[0][0], holePoints[0][1]);
+      for (let i = 1; i < holePoints.length; i++) hole.lineTo(holePoints[i][0], holePoints[i][1]);
+      hole.closePath(); shape.holes.push(hole);
+    }
+    const geometry = new THREE.ShapeGeometry(shape, 1);
+    const positions = geometry.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      const point = coordinatesToPosition(positions.getY(i), positions.getX(i), radius);
+      positions.setXYZ(i, point.x, point.y, point.z);
+    }
+    positions.needsUpdate = true; geometry.computeVertexNormals();
+    meshes.push(geometry);
+  }
+  return meshes;
+}
 function refreshMarkers() {
-  for (const child of [...globe.children]) if (child.userData.travelMarker) globe.remove(child);
+  for (const child of [...globe.children]) if (child.userData.travelMarker || child.userData.travelBoundary) globe.remove(child);
   for (const place of places) {
     if (!Number.isFinite(place.lat) || !Number.isFinite(place.lon)) continue;
     const color = place.kind === 'visited' ? 0xc2eb79 : 0xe4b86d;
+    const boundary = new THREE.Group(); boundary.userData.travelBoundary = true;
+    for (const geometry of polygonToSphere(place.geojson)) {
+      boundary.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.48, side: THREE.DoubleSide, depthWrite: false })));
+    }
+    globe.add(boundary);
     const marker = new THREE.Group(); marker.userData.travelMarker = true;
     const dot = new THREE.Mesh(pinGeometry, new THREE.MeshBasicMaterial({ color }));
     const halo = new THREE.Mesh(new THREE.SphereGeometry(0.052, 12, 10), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false }));

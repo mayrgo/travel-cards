@@ -9,12 +9,12 @@ Open `index.html` in a modern browser, or serve the folder over HTTP (for exampl
 ## Prototype notes
 
 - Drag the globe to rotate it; use the plus/minus controls or scroll to zoom.
-- Add a place, type a name, choose **Find on map**, select the matching OpenStreetMap result, then save. The pin is colored lime for visited places and amber for plans. You can enter latitude and longitude instead of searching.
+- Add a place, type a name, choose **Find on map**, select the matching OpenStreetMap result, then save. When OSM has a city boundary, the whole city is filled lime for a visit or amber for a plan; if only a point exists, the app says so and saves a pin. You can enter latitude and longitude instead of searching.
 - The terminator uses the current UTC time and an approximate solar ephemeris. City lights show on the night side.
 - Add places to either the visited or planned list. These records are saved in this browser only.
 - Export and import a versioned JSON backup from the header. The format includes a schema version for future server migration.
 - The photo picker previews images in the current session. A durable photo library and sync are not connected yet.
-- Place lookup is an explicit user search against the public Nominatim service. It caches results locally, does not autocomplete, and displays OpenStreetMap attribution. Follow its [usage policy](https://operations.osmfoundation.org/policies/nominatim/) and replace the endpoint with a self-hosted or provider service if usage grows.
+- Place lookup is an explicit user search against the public Nominatim service, requesting available GeoJSON geometry for city boundaries. It caches results locally, does not autocomplete, and displays OpenStreetMap attribution. Follow its [usage policy](https://operations.osmfoundation.org/policies/nominatim/) and replace the endpoint with a self-hosted or provider service if usage grows.
 - Example destinations and counts are demo content. Replace them with your own places.
 
 ## Suggested integrations and data
